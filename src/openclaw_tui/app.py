@@ -37,6 +37,7 @@ class AgentDashboard(App[None]):
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("c", "copy_info", "Copy Info"),
+        ("e", "expand_all", "Expand All"),
     ]
 
     CSS = """
@@ -214,6 +215,31 @@ class AgentDashboard(App[None]):
             with open(path, "w") as f:
                 f.write(info_text)
             self.notify(f"Saved to {path} (install xclip for clipboard)")
+
+    def action_expand_all(self) -> None:
+        """Toggle expand/collapse all session nodes."""
+        tree = self.query_one(AgentTreeWidget)
+        # Check if any session nodes are collapsed
+        any_collapsed = False
+        for group in tree.root.children:
+            for session_node in group.children:
+                if session_node.children and not session_node.is_expanded:
+                    any_collapsed = True
+                    break
+            if any_collapsed:
+                break
+
+        # Toggle: if any collapsed → expand all, else collapse all
+        for group in tree.root.children:
+            group.expand()
+            for session_node in group.children:
+                if session_node.children:
+                    if any_collapsed:
+                        session_node.expand()
+                    else:
+                        session_node.collapse()
+
+        self.notify("Expanded all" if any_collapsed else "Collapsed all")
 
     def action_refresh(self) -> None:
         """Manual refresh triggered by 'r' key."""

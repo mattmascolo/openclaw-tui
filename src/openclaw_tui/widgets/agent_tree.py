@@ -172,6 +172,6 @@ class AgentTreeWidget(Tree[SessionInfo]):
                 meta_label = _session_meta_label(session, snippet=snip)
 
                 # Session is a branch node with data, meta is a leaf child
-                was_session_expanded = expanded_sessions.get(session.session_id, True)
+                was_session_expanded = expanded_sessions.get(session.session_id, False)
                 session_branch = group.add(name_label, data=session, expand=was_session_expanded)
                 session_branch.add_leaf(meta_label)
