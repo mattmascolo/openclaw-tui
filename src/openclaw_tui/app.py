@@ -223,7 +223,7 @@ class AgentDashboard(App[None]):
         tree = self.query_one(AgentTreeWidget)
         if log_panel.display:
             log_panel.display = False
-            tree.styles.width = "1fr"
+            tree.styles.width = "100%"
         else:
             log_panel.display = True
             tree.styles.width = "2fr"
