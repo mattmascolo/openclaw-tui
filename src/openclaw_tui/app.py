@@ -38,6 +38,7 @@ class AgentDashboard(App[None]):
         ("r", "refresh", "Refresh"),
         ("c", "copy_info", "Copy Info"),
         ("e", "expand_all", "Expand All"),
+        ("l", "toggle_logs", "Logs"),
     ]
 
     CSS = """
@@ -215,6 +216,11 @@ class AgentDashboard(App[None]):
             with open(path, "w") as f:
                 f.write(info_text)
             self.notify(f"Saved to {path} (install xclip for clipboard)")
+
+    def action_toggle_logs(self) -> None:
+        """Toggle the log panel visibility."""
+        log_panel = self.query_one(LogPanel)
+        log_panel.display = not log_panel.display
 
     def action_expand_all(self) -> None:
         """Toggle expand/collapse all session nodes."""
