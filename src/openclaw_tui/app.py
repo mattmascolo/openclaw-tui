@@ -38,7 +38,7 @@ class AgentDashboard(App[None]):
         ("r", "refresh", "Refresh"),
         ("c", "copy_info", "Copy Info"),
         ("e", "expand_all", "Expand All"),
-        ("l", "toggle_logs", "Logs"),
+        ("v", "toggle_logs", "View Logs"),
     ]
 
     CSS = """
