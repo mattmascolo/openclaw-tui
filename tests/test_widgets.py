@@ -81,7 +81,7 @@ async def test_tree_renders_agent_group_headers() -> None:
 
 @pytest.mark.asyncio
 async def test_tree_renders_session_lines_with_status_icons() -> None:
-    """Session leaf nodes include status icon, name, model, and token count."""
+    """Session branch nodes include status icon + name; meta leaf has model + tokens."""
     app = WidgetTestApp()
     async with app.run_test() as pilot:
         tree = app.query_one(AgentTreeWidget)
@@ -97,20 +97,22 @@ async def test_tree_renders_session_lines_with_status_icons() -> None:
         tree.update_tree(nodes, NOW_MS)
         await pilot.pause()
 
-        # Get the session leaf under "main"
+        # Session is now a branch node; meta is its leaf child
         agent_group = tree.root.children[0]
-        leaf = agent_group.children[0]
-        label_text = leaf.label.plain
+        session_branch = agent_group.children[0]
+        name_text = session_branch.label.plain
+        meta_leaf = session_branch.children[0]
+        meta_text = meta_leaf.label.plain
 
-        assert "●" in label_text          # active icon
-        assert "my-session" in label_text # label used (not display_name)
-        assert "opus-4-6" in label_text   # short_model
-        assert "27K" in label_text        # token count formatted
+        assert "●" in name_text           # active icon
+        assert "my-session" in name_text   # label used (not display_name)
+        assert "opus-4-6" in meta_text     # short_model in meta line
+        assert "27K" in meta_text          # token count in meta line
 
 
 @pytest.mark.asyncio
 async def test_tree_uses_display_name_when_no_label() -> None:
-    """When label is None, display_name is used in session line."""
+    """When label is None, display_name is used in session name line."""
     app = WidgetTestApp()
     async with app.run_test() as pilot:
         tree = app.query_one(AgentTreeWidget)
@@ -126,11 +128,12 @@ async def test_tree_uses_display_name_when_no_label() -> None:
         await pilot.pause()
 
         agent_group = tree.root.children[0]
-        leaf = agent_group.children[0]
-        label_text = leaf.label.plain
+        session_branch = agent_group.children[0]
+        name_text = session_branch.label.plain
+        meta_text = session_branch.children[0].label.plain
 
-        assert "subagent:abc123" in label_text
-        assert "0" in label_text  # zero tokens
+        assert "subagent:abc123" in name_text
+        assert "0" in meta_text  # zero tokens
 
 
 @pytest.mark.asyncio
@@ -159,8 +162,8 @@ async def test_tree_shows_aborted_icon() -> None:
         await pilot.pause()
 
         agent_group = tree.root.children[0]
-        leaf = agent_group.children[0]
-        assert "⚠" in leaf.label.plain
+        session_branch = agent_group.children[0]
+        assert "⚠" in session_branch.label.plain
 
 
 @pytest.mark.asyncio
@@ -176,13 +179,13 @@ async def test_tree_shows_idle_icon() -> None:
         await pilot.pause()
 
         agent_group = tree.root.children[0]
-        leaf = agent_group.children[0]
-        assert "○" in leaf.label.plain
+        session_branch = agent_group.children[0]
+        assert "○" in session_branch.label.plain
 
 
 @pytest.mark.asyncio
 async def test_tree_million_token_format() -> None:
-    """Token counts ≥ 1M formatted as '1.2M'."""
+    """Token counts ≥ 1M formatted as '1.2M' in meta line."""
     app = WidgetTestApp()
     async with app.run_test() as pilot:
         tree = app.query_one(AgentTreeWidget)
@@ -193,8 +196,9 @@ async def test_tree_million_token_format() -> None:
         await pilot.pause()
 
         agent_group = tree.root.children[0]
-        leaf = agent_group.children[0]
-        assert "1.2M" in leaf.label.plain
+        session_branch = agent_group.children[0]
+        meta_text = session_branch.children[0].label.plain
+        assert "1.2M" in meta_text
 
 
 @pytest.mark.asyncio
@@ -326,7 +330,7 @@ def test_session_label_with_snippet() -> None:
 
 @pytest.mark.asyncio
 async def test_tree_update_with_snippets_dict() -> None:
-    """update_tree with snippets dict includes snippet in session leaf label."""
+    """update_tree with snippets dict includes snippet in meta leaf label."""
     app = WidgetTestApp()
     async with app.run_test() as pilot:
         tree = app.query_one(AgentTreeWidget)
@@ -344,8 +348,9 @@ async def test_tree_update_with_snippets_dict() -> None:
         await pilot.pause()
 
         agent_group = tree.root.children[0]
-        leaf = agent_group.children[0]
-        label_text = leaf.label.plain
+        session_branch = agent_group.children[0]
+        name_text = session_branch.label.plain
+        meta_text = session_branch.children[0].label.plain
 
-        assert "my-session" in label_text
-        assert "Working on task..." in label_text
+        assert "my-session" in name_text
+        assert "Working on task..." in meta_text

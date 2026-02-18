@@ -1,6 +1,8 @@
 """AgentTreeWidget — Textual Tree widget displaying agents and their sessions."""
 from __future__ import annotations
 
+import re
+
 from textual.widgets import Tree
 
 from ..models import AgentNode, SessionInfo, SessionStatus, STATUS_ICONS, STATUS_STYLES
@@ -23,34 +25,105 @@ def _format_tokens(count: int) -> str:
     return str(count)
 
 
-def _session_label(session: SessionInfo, now_ms: int, snippet: str | None = None) -> str:
-    """Build the display label for a session leaf node.
+# Snippets that add no value — filter them out
+_JUNK_SNIPPETS = frozenset({
+    "NO_REPLY",
+    "HEARTBEAT_OK",
+    "(no output recorded)",
+    "",
+})
 
-    Format: "● my-session (opus-4-6) 27K tokens"
-    With snippet: "● my-session (opus-4-6) 27K tokens — \"Both builders spawned...\""
+
+def _clean_display_name(session: SessionInfo) -> str:
+    """Return a clean, human-readable name for a session.
+
+    Transformations:
+      - webchat:g-agent-main-main → webchat
+      - discord:g-1472719550851318025 → discord DM
+      - discord:1472066469130141929#general → #general
+      - discord:1466858867391729746#lab → #lab
+      - Labels (Cron: Nightly, forge-builder-data, etc.) pass through as-is
+    """
+    # Prefer label if set
+    if session.label is not None:
+        return session.label
+
+    name = session.display_name
+
+    # discord:GUILD#channel → #channel
+    match = re.match(r"discord:\d+#(.+)", name)
+    if match:
+        return f"#{match.group(1)}"
+
+    # discord:g-DIGITS → discord DM
+    if re.match(r"discord:g-\d+", name):
+        return "discord DM"
+
+    # webchat:g-agent-main-main → webchat
+    if name.startswith("webchat:"):
+        return "webchat"
+
+    return name
+
+
+def _session_name_label(session: SessionInfo, now_ms: int) -> str:
+    """First line: status icon + clean name.
+
+    Format: "● webchat" or "○ Cron: Nightly Consolidation"
     """
     status = session.status(now_ms)
     icon = STATUS_ICONS[status]
-    name = session.label if session.label is not None else session.display_name
+    name = _clean_display_name(session)
+    return f"{icon} {name}"
+
+
+def _session_meta_label(
+    session: SessionInfo,
+    snippet: str | None = None,
+) -> str:
+    """Second line: model · tokens · snippet (if any).
+
+    Format: "opus-4-6 · 28K tokens"
+    With snippet: "opus-4-6 · 28K tokens · \"Nightly consolidation...\""
+    """
+    model = session.short_model
+    tokens = _format_tokens(session.total_tokens)
+    meta = f"{model} · {tokens} tokens"
+
+    if snippet and snippet.strip() not in _JUNK_SNIPPETS:
+        clean = snippet.strip().replace("\n", " ")[:40]
+        meta += f" · \"{clean}\""
+
+    return meta
+
+
+# Keep the old function signature for backward compat with tests
+def _session_label(session: SessionInfo, now_ms: int, snippet: str | None = None) -> str:
+    """Build a combined single-line label (used by tests, legacy compat).
+
+    Format: "● webchat (opus-4-6) 27K tokens"
+    """
+    status = session.status(now_ms)
+    icon = STATUS_ICONS[status]
+    name = _clean_display_name(session)
     model = session.short_model
     tokens = _format_tokens(session.total_tokens)
     base = f"{icon} {name} ({model}) {tokens} tokens"
-    if snippet:
-        # Truncate snippet and add in dimmed style (no Rich markup in Tree labels)
-        return f'{base} — "{snippet}"'
+    if snippet and snippet.strip() not in _JUNK_SNIPPETS:
+        clean = snippet.strip().replace("\n", " ")[:40]
+        return f'{base} — "{clean}"'
     return base
 
 
 class AgentTreeWidget(Tree[SessionInfo]):
     """Tree widget displaying agents and their sessions.
 
-    Top-level nodes: agent IDs (e.g., "main", "sonnet-worker")
-    Children: individual sessions with status icon, label/name, model, tokens
-
-    Format per session line:
-        "● my-session (opus-4-6) 27K tokens"
-        "○ cron: Nightly Consolidation (sonnet-4-5) 30K tokens"
-        "⚠ subagent:abc123 (minimax) 0 tokens"
+    Two-line nested layout per session:
+        ▼ main
+          ▼ ● webchat
+              opus-4-6 · 0 tokens
+          ▼ ○ Cron: Nightly Consolidation
+              opus-4-6 · 28K tokens · "Nightly consolidation..."
     """
 
     def on_mount(self) -> None:
@@ -64,20 +137,23 @@ class AgentTreeWidget(Tree[SessionInfo]):
         now_ms: int,
         snippets: dict[str, str] | None = None,
     ) -> None:
-        """Rebuild tree from agent nodes. Preserves expansion state of agent groups.
+        """Rebuild tree from agent nodes with nested session layout.
 
-        Args:
-            nodes:    List of AgentNode objects to display.
-            now_ms:   Current time in milliseconds (used to compute session status).
-            snippets: Optional mapping of session_id → last activity string.
+        Each session becomes a branch node (name line) with a leaf child (meta line).
+        The SessionInfo data is set on the branch node so selection still works.
+
+        Preserves expansion state of agent groups.
         """
-        # Snapshot current expansion state keyed by agent_id label text
-        expanded: dict[str, bool] = {}
+        # Snapshot expansion state: agent groups + individual sessions
+        expanded_groups: dict[str, bool] = {}
+        expanded_sessions: dict[str, bool] = {}
         for child in self.root.children:
-            expanded[child.label.plain] = child.is_expanded
+            expanded_groups[child.label.plain] = child.is_expanded
+            for session_node in child.children:
+                if session_node.data is not None:
+                    expanded_sessions[session_node.data.session_id] = session_node.is_expanded
 
         self.clear()
-        # Ensure root is expanded after clear (clear preserves the state, but be explicit)
         self.root.expand()
 
         if not nodes:
@@ -85,12 +161,17 @@ class AgentTreeWidget(Tree[SessionInfo]):
             return
 
         for agent_node in nodes:
-            was_expanded = expanded.get(agent_node.agent_id, True)
+            was_group_expanded = expanded_groups.get(agent_node.agent_id, True)
             group = self.root.add(
                 agent_node.agent_id,
-                expand=was_expanded,
+                expand=was_group_expanded,
             )
             for session in agent_node.sessions:
                 snip = snippets.get(session.session_id) if snippets else None
-                label = _session_label(session, now_ms, snippet=snip)
-                group.add_leaf(label, data=session)
+                name_label = _session_name_label(session, now_ms)
+                meta_label = _session_meta_label(session, snippet=snip)
+
+                # Session is a branch node with data, meta is a leaf child
+                was_session_expanded = expanded_sessions.get(session.session_id, True)
+                session_branch = group.add(name_label, data=session, expand=was_session_expanded)
+                session_branch.add_leaf(meta_label)
