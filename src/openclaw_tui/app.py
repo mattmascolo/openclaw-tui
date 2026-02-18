@@ -218,9 +218,15 @@ class AgentDashboard(App[None]):
             self.notify(f"Saved to {path} (install xclip for clipboard)")
 
     def action_toggle_logs(self) -> None:
-        """Toggle the log panel visibility."""
+        """Toggle the log panel visibility. Tree expands to full width when hidden."""
         log_panel = self.query_one(LogPanel)
-        log_panel.display = not log_panel.display
+        tree = self.query_one(AgentTreeWidget)
+        if log_panel.display:
+            log_panel.display = False
+            tree.styles.width = "1fr"
+        else:
+            log_panel.display = True
+            tree.styles.width = "2fr"
 
     def action_expand_all(self) -> None:
         """Toggle expand/collapse all session nodes."""
