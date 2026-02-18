@@ -54,9 +54,11 @@ def _clean_display_name(session: SessionInfo) -> str:
     if match:
         return f"#{match.group(1)}"
 
-    # discord:g-DIGITS → discord DM
-    if re.match(r"discord:g-\d+", name):
-        return "discord DM"
+    # discord:g-DIGITS → discord (last 4 digits to differentiate)
+    match = re.match(r"discord:g-(\d+)", name)
+    if match:
+        short_id = match.group(1)[-4:]
+        return f"discord …{short_id}"
 
     # webchat:g-agent-main-main → webchat
     if name.startswith("webchat:"):
