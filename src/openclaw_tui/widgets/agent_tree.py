@@ -39,9 +39,8 @@ def _clean_display_name(session: SessionInfo) -> str:
 
     Transformations:
       - webchat:g-agent-main-main → webchat
-      - discord:g-1472719550851318025 → discord DM
-      - discord:1472066469130141929#general → #general
-      - discord:1466858867391729746#lab → #lab
+      - discord:g-123456789 → discord DM
+      - discord:123456789#general → #general
       - Labels (Cron: Nightly, forge-builder-data, etc.) pass through as-is
     """
     # Prefer label if set

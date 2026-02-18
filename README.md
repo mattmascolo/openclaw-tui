@@ -1,6 +1,6 @@
 # OpenClaw Agent Dashboard
 
-A live terminal dashboard for monitoring [OpenClaw](https://github.com/openclaw/openclaw) agent sessions. See every agent, session, and model at a glance — with real-time status updates and transcript viewing.
+A live terminal dashboard for monitoring [OpenClaw](https://github.com/openclaw/openclaw) agent sessions. Watch your agents work in real-time — see what they're doing, what they were told to do, and what they reported back.
 
 Built with [Textual](https://textual.textualize.io/) and [httpx](https://www.python-httpx.org/).
 
@@ -11,25 +11,29 @@ Built with [Textual](https://textual.textualize.io/) and [httpx](https://www.pyt
 
 ```
 ┌── OpenClaw Agent Dashboard ──────────────────────────────────────────────┐
-│ ▼ main                        │ [21:44] user: build the log panel       │
-│   ● webchat (opus-4-6) 132K   │ [21:44] assistant: On it. Spawning two  │
-│   ○ Cron: Nightly (opus-4-6)  │   parallel builders...                  │
-│   ○ Cron: Bedtime (opus-4-6)  │ [21:45] tool: [tool: sessions_spawn]    │
-│   ○ discord:#general (opus-4… │ [21:47] assistant: Both done. Running    │
-│ ▼ social                       │   integration tests now.                │
-│   ○ discord:#lab (sonnet-4-5)  │ [21:48] user: how do i use it?          │
-│ ▼ sonnet-worker                │ [21:49] assistant: Arrow keys to nav,   │
-│   ○ forge-builder (sonnet-4-5) │   Enter to view transcript...           │
+│ ▼ main                        │ 📋 TASK                                 │
+│   ▼ ● webchat                 │ Build the log panel using Software      │
+│       opus-4-6 · 132K tokens  │ Forge to spin up parallel builders...   │
+│   ▼ ○ Cron: Nightly           │ ────────────────────────────────────    │
+│       opus-4-6 · 28K tokens   │ [21:44] user: build the log panel      │
+│   ► ○ #general                │ [21:44] assistant: On it. Spawning two  │
+│   ► ○ discord DM              │   parallel builders...                  │
+│ ▼ social                       │ [21:47] assistant: Both done. 124/124   │
+│   ► ○ #lab                     │   tests passing.                       │
+│ ▼ sonnet-worker                │ ────────────────────────────────────    │
+│   ▼ ● forge-builder            │ 📊 REPORT                              │
+│       sonnet-4-5 · 50K tokens │ All 124 tests pass. Files modified...   │
+│       · "Running tests..."    │                                         │
 ├────────────────────────────────┴─────────────────────────────────────────┤
-│ Active: 1  Idle: 8  Aborted: 0  Total: 9                                │
+│ Active: 2  Idle: 7  Aborted: 0  Total: 9                                │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ q Quit · r Refresh · c Copy Info · ^p Command Palette                    │
+│ q Quit  r Refresh  c Copy Info  e Expand All  v View Logs  ^p palette    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Left panel** — Agent tree grouped by agent ID, with live status icons and token counts.
+**Left panel** — Agent tree with nested layout: session name on one line, model/tokens/activity on the next.
 
-**Right panel** — Transcript viewer. Select any session to see its recent messages, color-coded by role.
+**Right panel** — Transcript viewer with task prompt (📋), live messages, and final report (📊). Toggleable with `v`.
 
 **Bottom bar** — Summary counts across all sessions.
 
@@ -38,7 +42,13 @@ Built with [Textual](https://textual.textualize.io/) and [httpx](https://www.pyt
 - **Live polling** — Refreshes every 2 seconds from the OpenClaw gateway API
 - **Agent grouping** — Sessions organized by agent (`main`, `sonnet-worker`, `social`, etc.)
 - **Status icons** — See at a glance what's active, idle, or aborted
-- **Transcript viewer** — Select a session to read its last 20 messages directly from disk
+- **Nested tree layout** — Clean two-line display: name + status on line 1, metadata on line 2
+- **Smart display names** — Raw session keys cleaned up (`discord:GUILD#general` → `#general`, `webchat:g-agent-main-main` → `webchat`)
+- **Live log streaming** — Transcript auto-updates every 2s while viewing a session
+- **Task & Report view** — See the original task prompt (📋) and final report (📊) for any session
+- **Activity snippets** — One-line preview of each session's last message in the tree
+- **Toggleable log panel** — Press `v` to show/hide the right panel; tree goes full-width
+- **Expand/collapse** — Press `e` to toggle all session details; click individual sessions to expand
 - **Copy to clipboard** — Press `c` to copy the selected session's details
 - **Zero config** — Reads your existing `~/.openclaw/openclaw.json` automatically
 
@@ -50,6 +60,11 @@ cd openclaw-tui
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
+```
+
+**Quick alias** (optional):
+```bash
+echo 'alias agents="source /path/to/openclaw-tui/.venv/bin/activate && python -m openclaw_tui"' >> ~/.bashrc
 ```
 
 ## Run
@@ -67,6 +82,8 @@ Your OpenClaw gateway must be running. The dashboard reads connection details fr
 |-----|--------|
 | `↑` `↓` | Navigate sessions |
 | `Enter` | View selected session's transcript |
+| `v` | Toggle log panel on/off |
+| `e` | Expand/collapse all session details |
 | `r` | Force refresh |
 | `c` | Copy selected session info to clipboard |
 | `q` | Quit |
@@ -106,18 +123,18 @@ The dashboard auto-reads your OpenClaw gateway config. No separate configuration
 
 ## Transcript Viewer
 
-When you select a session and press Enter, the dashboard reads the session's transcript file directly from disk:
+Select a session and press Enter to view its transcript. The dashboard reads `.jsonl` transcript files directly from disk:
 
 ```
 ~/.openclaw/agents/<agent_id>/sessions/<session_id>.jsonl
 ```
 
-Messages are color-coded:
-- **Cyan** — User messages
-- **Green** — Assistant responses
-- **Dim** — Tool calls and results
+The viewer shows three sections:
+- **📋 TASK** — The first user message (the original prompt or task)
+- **Messages** — Recent conversation history, color-coded by role (cyan = user, green = assistant, dim = tool)
+- **📊 REPORT** — The last assistant message (final output or report)
 
-The viewer shows the last 20 messages. Content is truncated at 200 characters per message.
+Messages stream in live — stay on a session and watch new messages appear every 2 seconds.
 
 ## Development
 
@@ -126,7 +143,7 @@ pip install -e ".[dev]"
 python -m pytest tests/ -v
 ```
 
-95 tests covering models, config, client, tree building, transcript parsing, widgets, and app integration.
+124 tests covering models, config, client, tree building, transcript parsing, widgets, and app integration.
 
 ## Architecture
 
@@ -136,11 +153,11 @@ openclaw_tui/
 ├── client.py           # Gateway HTTP client (httpx)
 ├── config.py           # Config loader (openclaw.json + env vars)
 ├── models.py           # SessionInfo, AgentNode, status enums
-├── transcript.py       # JSONL transcript file reader
+├── transcript.py       # JSONL transcript file reader + incremental tailing
 ├── tree.py             # Session → agent tree grouping logic
 └── widgets/
-    ├── agent_tree.py   # Left panel — Tree widget with status icons
-    ├── log_panel.py    # Right panel — RichLog transcript viewer
+    ├── agent_tree.py   # Left panel — nested tree with clean display names
+    ├── log_panel.py    # Right panel — task/report/streaming log viewer
     └── summary_bar.py  # Bottom bar — session count summary
 ```
 
