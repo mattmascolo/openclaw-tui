@@ -156,3 +156,143 @@ async def test_log_panel_tool_messages_have_dim_styling() -> None:
 
         assert "dim" in combined, f"[dim] markup missing: {written}"
         assert "[tool: bash]" in combined, f"Tool content missing: {written}"
+
+
+# ---------------------------------------------------------------------------
+# New tests: show_task_and_messages and append_messages
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_show_task_and_messages_with_all_sections() -> None:
+    """show_task_and_messages writes task header, messages, and report footer."""
+    app = LogPanelTestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one(LogPanel)
+
+        task = FakeMessage("user", "Build the feature", "09:00")
+        messages = [
+            FakeMessage("user", "Hello", "09:01"),
+            FakeMessage("assistant", "Working on it", "09:02"),
+        ]
+        report = FakeMessage("assistant", "Done! Feature complete.", "09:10")
+
+        written = _capture_writes(
+            panel, lambda: panel.show_task_and_messages(task, messages, report)
+        )
+        combined = " ".join(written)
+
+        # Task section
+        assert "📋 TASK" in combined, f"Task header missing: {written}"
+        assert "Build the feature" in combined, f"Task content missing: {written}"
+        assert "bold yellow" in combined, f"Task yellow styling missing: {written}"
+
+        # Messages
+        assert "Hello" in combined, f"User message missing: {written}"
+        assert "Working on it" in combined, f"Assistant message missing: {written}"
+
+        # Report section
+        assert "📊 REPORT" in combined, f"Report header missing: {written}"
+        assert "Done! Feature complete." in combined, f"Report content missing: {written}"
+        assert "bold magenta" in combined, f"Report magenta styling missing: {written}"
+
+
+@pytest.mark.asyncio
+async def test_show_task_and_messages_without_task() -> None:
+    """show_task_and_messages with task=None should skip the task section."""
+    app = LogPanelTestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one(LogPanel)
+
+        messages = [FakeMessage("user", "Hello", "09:01")]
+        report = FakeMessage("assistant", "Done.", "09:10")
+
+        written = _capture_writes(
+            panel, lambda: panel.show_task_and_messages(None, messages, report)
+        )
+        combined = " ".join(written)
+
+        assert "📋 TASK" not in combined, f"Task header should be absent: {written}"
+        assert "Hello" in combined, f"User message should be present: {written}"
+        assert "📊 REPORT" in combined, f"Report header should be present: {written}"
+
+
+@pytest.mark.asyncio
+async def test_show_task_and_messages_without_report() -> None:
+    """show_task_and_messages with report=None should skip the report section."""
+    app = LogPanelTestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one(LogPanel)
+
+        task = FakeMessage("user", "Do something", "09:00")
+        messages = [FakeMessage("assistant", "OK", "09:01")]
+
+        written = _capture_writes(
+            panel, lambda: panel.show_task_and_messages(task, messages, None)
+        )
+        combined = " ".join(written)
+
+        assert "📋 TASK" in combined, f"Task header should be present: {written}"
+        assert "Do something" in combined, f"Task content should be present: {written}"
+        assert "OK" in combined, f"Message should be present: {written}"
+        assert "📊 REPORT" not in combined, f"Report header should be absent: {written}"
+
+
+@pytest.mark.asyncio
+async def test_show_task_and_messages_empty_messages() -> None:
+    """show_task_and_messages with empty messages list shows 'No messages yet'."""
+    app = LogPanelTestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one(LogPanel)
+
+        task = FakeMessage("user", "Do something", "09:00")
+
+        written = _capture_writes(
+            panel, lambda: panel.show_task_and_messages(task, [], None)
+        )
+        combined = " ".join(written)
+
+        assert "No messages yet" in combined, f"Expected 'No messages yet': {written}"
+
+
+@pytest.mark.asyncio
+async def test_append_messages_adds_without_clearing() -> None:
+    """append_messages adds messages to existing content without clearing."""
+    app = LogPanelTestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one(LogPanel)
+
+        first_writes: list[str] = []
+        append_writes: list[str] = []
+
+        def _fake_write_first(content, **kwargs):
+            first_writes.append(str(content))
+
+        def _fake_write_append(content, **kwargs):
+            append_writes.append(str(content))
+
+        # First, show some messages
+        msgs_initial = [FakeMessage("user", "Initial message", "09:00")]
+        with patch.object(panel, "write", side_effect=_fake_write_first):
+            panel.show_task_and_messages(None, msgs_initial, None)
+
+        # Now append new messages — no clear() should happen
+        cleared = []
+        original_clear = panel.clear
+
+        def _fake_clear():
+            cleared.append(True)
+            original_clear()
+
+        new_msgs = [FakeMessage("assistant", "New response", "09:05")]
+        with patch.object(panel, "write", side_effect=_fake_write_append):
+            with patch.object(panel, "clear", side_effect=_fake_clear):
+                panel.append_messages(new_msgs)
+
+        # clear() should NOT have been called
+        assert len(cleared) == 0, "append_messages should not call clear()"
+
+        # New message content should have been written
+        combined_append = " ".join(append_writes)
+        assert "New response" in combined_append, f"Appended message missing: {append_writes}"
+        assert "bold green" in combined_append, f"Assistant styling missing: {append_writes}"

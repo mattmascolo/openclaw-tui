@@ -14,7 +14,13 @@ from .widgets import AgentTreeWidget, SummaryBar, LogPanel
 from .config import GatewayConfig, load_config
 from .client import GatewayClient, GatewayError
 from .tree import build_tree
-from .transcript import read_transcript
+from .transcript import (
+    read_transcript,
+    read_task,
+    read_report,
+    read_transcript_incremental,
+    get_last_activity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +74,9 @@ class AgentDashboard(App[None]):
         self._config = load_config()
         self._client = GatewayClient(self._config)
         self._selected_session: SessionInfo | None = None
+        self._tail_offset: int = 0
+        self._snippet_cache: dict[str, str] = {}
+        self._snippet_counter: int = 0
         self.set_interval(2.0, self._trigger_poll)
         self._trigger_poll()  # immediate first poll
 
@@ -87,10 +96,38 @@ class AgentDashboard(App[None]):
         try:
             sessions = await asyncio.to_thread(self._client.fetch_sessions)
             nodes = build_tree(sessions)
+
+            # Refresh snippets every 5 polls (~10 seconds)
+            self._snippet_counter += 1
+            if self._snippet_counter >= 5:
+                self._snippet_counter = 0
+                snippets: dict[str, str] = {}
+                for s in sessions:
+                    activity = await asyncio.to_thread(
+                        get_last_activity, s.session_id, s.agent_id
+                    )
+                    if activity:
+                        snippets[s.session_id] = activity
+                self._snippet_cache = snippets
+
             tree = self.query_one(AgentTreeWidget)
             bar = self.query_one(SummaryBar)
-            tree.update_tree(nodes, now_ms)
+            tree.update_tree(nodes, now_ms, snippets=self._snippet_cache)
             bar.update_summary(nodes, now_ms)
+
+            # Live tail the selected session
+            if self._selected_session is not None:
+                new_msgs, new_offset = await asyncio.to_thread(
+                    read_transcript_incremental,
+                    self._selected_session.session_id,
+                    self._selected_session.agent_id,
+                    self._tail_offset,
+                )
+                if new_msgs:
+                    self._tail_offset = new_offset
+                    log_panel = self.query_one(LogPanel)
+                    log_panel.append_messages(new_msgs)
+
             logger.info("Poll OK — %d sessions across %d agents", len(sessions), len(nodes))
         except (GatewayError, ConnectionError) as exc:
             logger.warning("Gateway poll failed: %s", exc)
@@ -108,18 +145,30 @@ class AgentDashboard(App[None]):
             logger.error("Could not update SummaryBar: %s", exc)
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
-        """When a session node is selected, show its transcript."""
+        """When a session node is selected, show its transcript with task and report."""
         node_data = event.node.data  # This is the SessionInfo object (set in AgentTreeWidget)
         if node_data is None:
             return  # Agent group header, not a session
         self._selected_session = node_data
         log_panel = self.query_one(LogPanel)
         try:
-            messages = read_transcript(
-                session_id=node_data.session_id,
-                agent_id=node_data.agent_id,
+            # Read task, full transcript, and report
+            task = read_task(node_data.session_id, node_data.agent_id)
+            report = read_report(node_data.session_id, node_data.agent_id)
+            messages = read_transcript(node_data.session_id, node_data.agent_id, limit=50)
+            log_panel.show_task_and_messages(task, messages, report)
+
+            # Set tail offset to current file size for live streaming
+            from pathlib import Path
+            transcript_path = (
+                Path.home()
+                / ".openclaw"
+                / "agents"
+                / node_data.agent_id
+                / "sessions"
+                / f"{node_data.session_id}.jsonl"
             )
-            log_panel.show_transcript(messages)
+            self._tail_offset = transcript_path.stat().st_size if transcript_path.exists() else 0
         except Exception as exc:  # noqa: BLE001 — never crash the TUI
             logger.warning("Failed to load transcript for %s: %s", node_data.session_id, exc)
             log_panel.show_error(str(exc) or "Failed to load transcript")

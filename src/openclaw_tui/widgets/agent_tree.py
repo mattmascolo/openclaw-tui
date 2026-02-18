@@ -23,17 +23,22 @@ def _format_tokens(count: int) -> str:
     return str(count)
 
 
-def _session_label(session: SessionInfo, now_ms: int) -> str:
+def _session_label(session: SessionInfo, now_ms: int, snippet: str | None = None) -> str:
     """Build the display label for a session leaf node.
 
     Format: "● my-session (opus-4-6) 27K tokens"
+    With snippet: "● my-session (opus-4-6) 27K tokens — \"Both builders spawned...\""
     """
     status = session.status(now_ms)
     icon = STATUS_ICONS[status]
     name = session.label if session.label is not None else session.display_name
     model = session.short_model
     tokens = _format_tokens(session.total_tokens)
-    return f"{icon} {name} ({model}) {tokens} tokens"
+    base = f"{icon} {name} ({model}) {tokens} tokens"
+    if snippet:
+        # Truncate snippet and add in dimmed style (no Rich markup in Tree labels)
+        return f'{base} — "{snippet}"'
+    return base
 
 
 class AgentTreeWidget(Tree[SessionInfo]):
@@ -53,12 +58,18 @@ class AgentTreeWidget(Tree[SessionInfo]):
         self.show_root = False
         self.root.expand()
 
-    def update_tree(self, nodes: list[AgentNode], now_ms: int) -> None:
+    def update_tree(
+        self,
+        nodes: list[AgentNode],
+        now_ms: int,
+        snippets: dict[str, str] | None = None,
+    ) -> None:
         """Rebuild tree from agent nodes. Preserves expansion state of agent groups.
 
         Args:
-            nodes:  List of AgentNode objects to display.
-            now_ms: Current time in milliseconds (used to compute session status).
+            nodes:    List of AgentNode objects to display.
+            now_ms:   Current time in milliseconds (used to compute session status).
+            snippets: Optional mapping of session_id → last activity string.
         """
         # Snapshot current expansion state keyed by agent_id label text
         expanded: dict[str, bool] = {}
@@ -80,5 +91,6 @@ class AgentTreeWidget(Tree[SessionInfo]):
                 expand=was_expanded,
             )
             for session in agent_node.sessions:
-                label = _session_label(session, now_ms)
+                snip = snippets.get(session.session_id) if snippets else None
+                label = _session_label(session, now_ms, snippet=snip)
                 group.add_leaf(label, data=session)

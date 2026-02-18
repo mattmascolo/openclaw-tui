@@ -289,3 +289,63 @@ async def test_summary_bar_zero_sessions() -> None:
         text = bar._display_text
         assert "Active: 0" in text
         assert "Total: 0" in text
+
+
+# ---------------------------------------------------------------------------
+# New tests: _session_label snippet support + update_tree with snippets
+# ---------------------------------------------------------------------------
+
+
+def test_session_label_without_snippet() -> None:
+    """_session_label without snippet returns base format unchanged."""
+    from openclaw_tui.widgets.agent_tree import _session_label
+
+    session = make_session(label="my-session", model="claude-opus-4-6", total_tokens=27_652, active=True)
+    label = _session_label(session, NOW_MS)
+
+    assert "my-session" in label
+    assert "opus-4-6" in label
+    assert "27K" in label
+    assert "tokens" in label
+    # Should NOT contain a snippet
+    assert "—" not in label
+
+
+def test_session_label_with_snippet() -> None:
+    """_session_label with snippet appends snippet after tokens."""
+    from openclaw_tui.widgets.agent_tree import _session_label
+
+    session = make_session(label="my-session", model="claude-opus-4-6", total_tokens=27_652, active=True)
+    label = _session_label(session, NOW_MS, snippet="Both builders spawned...")
+
+    assert "my-session" in label
+    assert "27K" in label
+    assert "—" in label
+    assert "Both builders spawned..." in label
+
+
+@pytest.mark.asyncio
+async def test_tree_update_with_snippets_dict() -> None:
+    """update_tree with snippets dict includes snippet in session leaf label."""
+    app = WidgetTestApp()
+    async with app.run_test() as pilot:
+        tree = app.query_one(AgentTreeWidget)
+
+        session = make_session(
+            key="agent:main:sess-xyz",
+            label="my-session",
+            active=True,
+        )
+        # Fake session_id is "sess-abc123" from make_session
+        snippets = {"sess-abc123": "Working on task..."}
+
+        nodes = [AgentNode(agent_id="main", sessions=[session])]
+        tree.update_tree(nodes, NOW_MS, snippets=snippets)
+        await pilot.pause()
+
+        agent_group = tree.root.children[0]
+        leaf = agent_group.children[0]
+        label_text = leaf.label.plain
+
+        assert "my-session" in label_text
+        assert "Working on task..." in label_text
