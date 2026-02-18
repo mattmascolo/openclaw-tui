@@ -82,7 +82,7 @@ Your OpenClaw gateway must be running. The dashboard reads connection details fr
 |-----|--------|
 | `↑` `↓` | Navigate sessions |
 | `Enter` | View selected session's transcript |
-| `v` | Toggle log panel on/off |
+| `v` | Toggle log panel on/off (tree goes full-width) |
 | `e` | Expand/collapse all session details |
 | `r` | Force refresh |
 | `c` | Copy selected session info to clipboard |
