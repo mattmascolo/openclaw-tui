@@ -81,7 +81,7 @@ async def test_tree_renders_agent_group_headers() -> None:
 
 @pytest.mark.asyncio
 async def test_tree_renders_session_lines_with_status_icons() -> None:
-    """Session branch nodes include status icon + name; meta leaf has model + tokens."""
+    """Session branch nodes include status icon + channel icon + name; meta leaf has model + tokens + time."""
     app = WidgetTestApp()
     async with app.run_test() as pilot:
         tree = app.query_one(AgentTreeWidget)
@@ -104,10 +104,12 @@ async def test_tree_renders_session_lines_with_status_icons() -> None:
         meta_leaf = session_branch.children[0]
         meta_text = meta_leaf.label.plain
 
-        assert "●" in name_text           # active icon
+        assert "●" in name_text           # active icon (markup stripped by .plain)
+        assert "🌐" in name_text           # channel icon for webchat
         assert "my-session" in name_text   # label used (not display_name)
         assert "opus-4-6" in meta_text     # short_model in meta line
         assert "27K" in meta_text          # token count in meta line
+        assert "active" in meta_text       # relative time
 
 
 @pytest.mark.asyncio
@@ -133,7 +135,8 @@ async def test_tree_uses_display_name_when_no_label() -> None:
         meta_text = session_branch.children[0].label.plain
 
         assert "subagent:abc123" in name_text
-        assert "0" in meta_text  # zero tokens
+        assert "0 tokens" in meta_text
+        assert "active" in meta_text  # relative time
 
 
 @pytest.mark.asyncio
@@ -199,6 +202,7 @@ async def test_tree_million_token_format() -> None:
         session_branch = agent_group.children[0]
         meta_text = session_branch.children[0].label.plain
         assert "1.2M" in meta_text
+        assert "active" in meta_text  # relative time
 
 
 @pytest.mark.asyncio
@@ -262,22 +266,22 @@ async def test_summary_bar_shows_correct_counts() -> None:
         await pilot.pause()
 
         text = bar._display_text
-        assert "Active: 2" in text
-        assert "Idle: 1" in text
-        assert "Aborted: 1" in text
-        assert "Total: 4" in text
+        assert "2 active" in text
+        assert "1 idle" in text
+        assert "1 aborted" in text
+        assert "4 total" in text
 
 
 @pytest.mark.asyncio
 async def test_summary_bar_set_error() -> None:
-    """set_error displays error message prefixed with ❌."""
+    """set_error displays error message with ⚠ icon."""
     app = WidgetTestApp()
     async with app.run_test() as pilot:
         bar = app.query_one(SummaryBar)
         bar.set_error("Gateway unreachable")
         await pilot.pause()
 
-        assert "❌" in bar._display_text
+        assert "⚠" in bar._display_text
         assert "Gateway unreachable" in bar._display_text
 
 
@@ -291,8 +295,8 @@ async def test_summary_bar_zero_sessions() -> None:
         await pilot.pause()
 
         text = bar._display_text
-        assert "Active: 0" in text
-        assert "Total: 0" in text
+        assert "0 active" in text
+        assert "0 total" in text
 
 
 # ---------------------------------------------------------------------------
@@ -354,3 +358,87 @@ async def test_tree_update_with_snippets_dict() -> None:
 
         assert "my-session" in name_text
         assert "Working on task..." in meta_text
+        assert "active" in meta_text  # relative time
+
+
+# ---------------------------------------------------------------------------
+# New: relative_time + channel icon tests
+# ---------------------------------------------------------------------------
+
+
+def test_relative_time_active() -> None:
+    """Timestamps within 30s return 'active'."""
+    from openclaw_tui.utils.time import relative_time
+
+    assert relative_time(NOW_MS - 5_000, NOW_MS) == "active"
+    assert relative_time(NOW_MS, NOW_MS) == "active"
+    assert relative_time(NOW_MS + 1_000, NOW_MS) == "active"  # future → active
+
+
+def test_relative_time_seconds() -> None:
+    """31–59 seconds returns 'Xs ago'."""
+    from openclaw_tui.utils.time import relative_time
+
+    assert relative_time(NOW_MS - 45_000, NOW_MS) == "45s ago"
+
+
+def test_relative_time_minutes() -> None:
+    """60s–59m returns 'Xm ago'."""
+    from openclaw_tui.utils.time import relative_time
+
+    assert relative_time(NOW_MS - 180_000, NOW_MS) == "3m ago"
+
+
+def test_relative_time_hours() -> None:
+    """1h–23h returns 'Xh ago'."""
+    from openclaw_tui.utils.time import relative_time
+
+    assert relative_time(NOW_MS - 7_200_000, NOW_MS) == "2h ago"
+
+
+def test_relative_time_days() -> None:
+    """24h+ returns 'Xd ago'."""
+    from openclaw_tui.utils.time import relative_time
+
+    assert relative_time(NOW_MS - 172_800_000, NOW_MS) == "2d ago"
+
+
+def test_channel_icon_exact_match() -> None:
+    """Known channels return their icon."""
+    from openclaw_tui.widgets.agent_tree import _channel_icon
+
+    assert _channel_icon("discord") == "⌨"
+    assert _channel_icon("webchat") == "🌐"
+    assert _channel_icon("cron") == "⏱"
+
+
+def test_channel_icon_substring_match() -> None:
+    """Channel names containing a known key match via substring."""
+    from openclaw_tui.widgets.agent_tree import _channel_icon
+
+    assert _channel_icon("cron:nightly-job") == "⏱"
+
+
+def test_channel_icon_unknown_fallback() -> None:
+    """Unknown channels fall back to middle dot."""
+    from openclaw_tui.widgets.agent_tree import _channel_icon
+
+    assert _channel_icon("carrier-pigeon") == "·"
+
+
+@pytest.mark.asyncio
+async def test_tree_shows_channel_icon() -> None:
+    """Session name lines include channel icon."""
+    app = WidgetTestApp()
+    async with app.run_test() as pilot:
+        tree = app.query_one(AgentTreeWidget)
+
+        session = make_session(label="my-session", active=True)
+        nodes = [AgentNode(agent_id="main", sessions=[session])]
+        tree.update_tree(nodes, NOW_MS)
+        await pilot.pause()
+
+        agent_group = tree.root.children[0]
+        session_branch = agent_group.children[0]
+        name_text = session_branch.label.plain
+        assert "🌐" in name_text  # webchat channel icon

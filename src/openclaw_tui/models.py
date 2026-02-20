@@ -22,6 +22,13 @@ STATUS_STYLES: dict[SessionStatus, str] = {
     SessionStatus.ABORTED: "yellow",
 }
 
+# Rich markup status icons (Hearth palette)
+STATUS_MARKUP: dict[SessionStatus, str] = {
+    SessionStatus.ACTIVE: "[bold #F5A623]●[/]",
+    SessionStatus.IDLE: "[dim #A8B5A2]○[/]",
+    SessionStatus.ABORTED: "[bold #C67B5C]⚠[/]",
+}
+
 
 @dataclass
 class SessionInfo:

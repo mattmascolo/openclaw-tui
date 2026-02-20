@@ -5,7 +5,8 @@ import re
 
 from textual.widgets import Tree
 
-from ..models import AgentNode, SessionInfo, SessionStatus, STATUS_ICONS, STATUS_STYLES
+from ..models import AgentNode, SessionInfo, SessionStatus, STATUS_ICONS, STATUS_MARKUP
+from ..utils.time import relative_time
 
 
 def _format_tokens(count: int) -> str:
@@ -23,6 +24,33 @@ def _format_tokens(count: int) -> str:
     if count >= 1_000:
         return f"{count // 1_000}K"
     return str(count)
+
+
+# ---------------------------------------------------------------------------
+# Channel icons
+# ---------------------------------------------------------------------------
+
+_CHANNEL_ICONS: dict[str, str] = {
+    "discord": "⌨",
+    "cron": "⏱",
+    "webchat": "🌐",
+    "signal": "📶",
+    "telegram": "✈",
+}
+
+
+def _channel_icon(channel: str) -> str:
+    """Return the icon for a channel. Exact match first, then substring.
+
+    Handles names like 'cron:nightly-job' by substring matching 'cron'.
+    Unknown channels fall back to '·' (middle dot).
+    """
+    if channel in _CHANNEL_ICONS:
+        return _CHANNEL_ICONS[channel]
+    for key, icon in _CHANNEL_ICONS.items():
+        if key in channel:
+            return icon
+    return "·"
 
 
 # Snippets that add no value — filter them out
@@ -68,28 +96,31 @@ def _clean_display_name(session: SessionInfo) -> str:
 
 
 def _session_name_label(session: SessionInfo, now_ms: int) -> str:
-    """First line: status icon + clean name.
+    """First line: colored status icon + channel icon + clean name.
 
-    Format: "● webchat" or "○ Cron: Nightly Consolidation"
+    Format: "[bold #F5A623]●[/] 🌐 webchat"
+    Uses Rich markup for Hearth palette colors.
     """
-    status = session.status(now_ms)
-    icon = STATUS_ICONS[status]
+    icon = STATUS_MARKUP[session.status(now_ms)]
+    chan = _channel_icon(session.channel)
     name = _clean_display_name(session)
-    return f"{icon} {name}"
+    return f"{icon} {chan} {name}"
 
 
 def _session_meta_label(
     session: SessionInfo,
+    now_ms: int,
     snippet: str | None = None,
 ) -> str:
-    """Second line: model · tokens · snippet (if any).
+    """Second line: model · tokens · relative time · snippet (if any).
 
-    Format: "opus-4-6 · 28K tokens"
-    With snippet: "opus-4-6 · 28K tokens · \"Nightly consolidation...\""
+    Format: "opus-4-6 · 28K tokens · active"
+    With snippet: "opus-4-6 · 28K tokens · 3m ago · \"Nightly consolidation...\""
     """
     model = session.short_model
     tokens = _format_tokens(session.total_tokens)
-    meta = f"{model} · {tokens} tokens"
+    rel = relative_time(session.updated_at, now_ms)
+    meta = f"{model} · {tokens} tokens · {rel}"
 
     if snippet and snippet.strip() not in _JUNK_SNIPPETS:
         clean = snippet.strip().replace("\n", " ")[:40]
@@ -119,12 +150,12 @@ def _session_label(session: SessionInfo, now_ms: int, snippet: str | None = None
 class AgentTreeWidget(Tree[SessionInfo]):
     """Tree widget displaying agents and their sessions.
 
-    Two-line nested layout per session:
+    Two-line nested layout per session with Hearth palette colors:
         ▼ main
-          ▼ ● webchat
-              opus-4-6 · 0 tokens
-          ▼ ○ Cron: Nightly Consolidation
-              opus-4-6 · 28K tokens · "Nightly consolidation..."
+          ▼ [amber]●[/] 🌐 webchat
+              opus-4-6 · 0 tokens · active
+          ▼ [sage]○[/] ⏱ Cron: Nightly Consolidation
+              opus-4-6 · 28K tokens · 3h ago · "Nightly consolidation..."
     """
 
     def on_mount(self) -> None:
@@ -170,7 +201,7 @@ class AgentTreeWidget(Tree[SessionInfo]):
             for session in agent_node.sessions:
                 snip = snippets.get(session.session_id) if snippets else None
                 name_label = _session_name_label(session, now_ms)
-                meta_label = _session_meta_label(session, snippet=snip)
+                meta_label = _session_meta_label(session, now_ms, snippet=snip)
 
                 # Session is a branch node with data, meta is a leaf child
                 was_session_expanded = expanded_sessions.get(session.session_id, False)
